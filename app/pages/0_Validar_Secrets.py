@@ -1,17 +1,26 @@
 import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="Validador de Secrets", layout="centered")
 
+st.header("🔎 Validador de Secrets / Acesso ao Google Sheets")
+
 pk = st.secrets["gcp_service_account"].get("private_key", "")
-st.write("Começo:", pk[:40].replace("\n", "\\n"), "...")
-st.write("Termina:", pk[-40:].replace("\n","\\n"))
+st.write("Header OK? ", pk.strip().startswith("-----BEGIN PRIVATE KEY-----"))
+st.write("Footer OK? ", pk.strip().endswith("-----END PRIVATE KEY-----"))
 
-ok = pk.strip().startswith("-----BEGIN PRIVATE KEY-----") and pk.strip().endswith("-----END PRIVATE KEY-----")
-st.write("Formato header/footer OK?", ok)
-
-st.write("Contém quebras (\\n ou reais)?", ("\\n" in pk) or ("\n" in pk))
-
-if not ok:
-    st.error("Header/rodapé inválidos. Reveja a formatação conforme ‘Opção A’ ou ‘Opção B’.")
-else:
-    st.success("Header/rodapé parecem corretos. Se ainda falhar, verifique se não há caracteres estranhos.")
+try:
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ],
+    )
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_key(st.secrets["gsheets"]["spreadsheet_id"])
+    st.success(f"✅ Consegui abrir a planilha. Abas: {[ws.title for ws in sh.worksheets()]}")
+except Exception as e:
+    st.error("❌ Falha ao autenticar/acessar planilha. Revise secrets, compartilhamento e APIs.")
+    st.exception(e)

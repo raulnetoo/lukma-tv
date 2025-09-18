@@ -1,70 +1,101 @@
-import time
 import pandas as pd
 import streamlit as st
+
 from utils.sheets import read_df
-from utils.data import fetch_weather, fetch_rates, world_times, get_rotation_index
+from utils.data import fetch_weather, fetch_rates, world_times
 from utils.ui import inject_base_css, news_card, bday_card, clocks_block, weather_ticker
 
+# --------------------------------- Config & CSS ---------------------------------
 st.set_page_config(page_title="Lukma TV", page_icon="📺", layout="wide")
 inject_base_css()
 
 # botão/ícone para login (painel)
 st.markdown("<a class='logo-btn' href='/1_Admin' target='_self'>⚙️ Admin</a>", unsafe_allow_html=True)
 
-# ROTINAS DE DADOS
-news_df = read_df("news")
-news_df = news_df[news_df["active"].astype(str).str.lower().isin(["true","1","yes"])]
-bd_df = read_df("birthdays")
-bd_df = bd_df[bd_df["active"].astype(str).str.lower().isin(["true","1","yes"])]
-vid_df = read_df("videos")
-vid_df = vid_df[vid_df["active"].astype(str).str.lower().isin(["true","1","yes"])]
-wu_df = read_df("weather_units")
-wu_df = wu_df[wu_df["active"].astype(str).str.lower().isin(["true","1","yes"])]
-wc_df = read_df("worldclocks")
+# -------------------------- Funções robustas de leitura -------------------------
+def read_and_filter_active(sheet_name: str) -> pd.DataFrame:
+    """
+    Lê a aba do Google Sheets e, se existir a coluna 'active', aplica o filtro.
+    Se vier vazia ou sem cabeçalho, retorna DF vazio (sem quebrar).
+    """
+    df = read_df(sheet_name)
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df.columns = [str(c).strip() for c in df.columns]
+    if "active" in df.columns:
+        df = df[df["active"].astype(str).str.lower().isin(["true", "1", "yes"])]
+    return df.reset_index(drop=True)
 
-# WEATHER & RATES (cacheados)
-weather_df = fetch_weather(wu_df)
+def safe_len(df: pd.DataFrame) -> int:
+    return 0 if df is None or df.empty else len(df)
+
+# ------------------------------ Carregamento de dados ---------------------------
+news_df = read_and_filter_active("news")
+bd_df   = read_and_filter_active("birthdays")
+vid_df  = read_and_filter_active("videos")
+
+wu_df_raw = read_df("weather_units")
+if wu_df_raw is None or wu_df_raw.empty:
+    wu_df = pd.DataFrame()
+else:
+    wu_df_raw.columns = [str(c).strip() for c in wu_df_raw.columns]
+    if "active" in wu_df_raw.columns:
+        wu_df = wu_df_raw[wu_df_raw["active"].astype(str).str.lower().isin(["true","1","yes"])].reset_index(drop=True)
+    else:
+        wu_df = wu_df_raw.reset_index(drop=True)
+
+wc_df = read_df("worldclocks")
+if wc_df is None:
+    wc_df = pd.DataFrame()
+
+# WEATHER & RATES (cacheados nas utils)
+weather_df = fetch_weather(wu_df if not wu_df.empty else pd.DataFrame())
 rates = fetch_rates()
 times = world_times()
 
-# ÍNDICES DE ROTAÇÃO
-news_interval = int(st.secrets["app"].get("news_rotation_seconds", 10)) * 1000
-news_i = get_rotation_index("news", len(news_df), news_interval)
-bday_i = get_rotation_index("bdays", len(bd_df), news_interval)
-# vídeos usam duração por item; definimos um default de 30s
+# -------------------------- Índices de rotação / refresh ------------------------
+news_interval_ms = int(st.secrets["app"].get("news_rotation_seconds", 10)) * 1000
+news_i = st.session_state.get("rot_news", 0) % max(safe_len(news_df), 1)
+bday_i = st.session_state.get("rot_bdays", 0) % max(safe_len(bd_df), 1)
+
+# vídeos: duração por item; default 30s
 vid_default_ms = 30_000
-if len(vid_df) > 0:
+if safe_len(vid_df) > 0:
     current_vid = vid_df.iloc[st.session_state.get("rot_videos", 0) % len(vid_df)]
-    vid_ms = int(float(current_vid.get("duration_seconds") or 30)) * 1000
+    try:
+        vid_ms = int(float(current_vid.get("duration_seconds") or 30)) * 1000
+    except Exception:
+        vid_ms = vid_default_ms
 else:
     current_vid = None
     vid_ms = vid_default_ms
 
-# REFRESHES (cada área pode pedir)
-st_autorefresh_news = st.experimental_rerun  # placeholder
-st.autorefresh = st.experimental_rerun       # compat
-
-# Layout em GRID
+# --------------------------------- Layout em GRID --------------------------------
 st.markdown("<div class='grid'>", unsafe_allow_html=True)
 
 # A - Notícias
 st.markdown("<div class='a'>", unsafe_allow_html=True)
-if len(news_df) == 0:
-    st.info("Sem notícias ativas.")
+if safe_len(news_df) == 0:
+    st.info("Sem notícias ativas ou sem cabeçalho na aba 'news'.")
 else:
-    r = news_df.iloc[news_i % len(news_df)]
-    news_card(r["title"], r["description"], r["image_url"])
+    r = news_df.iloc[news_i]
+    title = r.get("title", "")
+    description = r.get("description", "")
+    image_url = r.get("image_url", "")
+    news_card(title, description, image_url)
 st.markdown("</div>", unsafe_allow_html=True)
 
 # C - Aniversariantes
 st.markdown("<div class='c'>", unsafe_allow_html=True)
-if len(bd_df) == 0:
-    st.info("Sem aniversariantes cadastrados.")
+if safe_len(bd_df) == 0:
+    st.info("Sem aniversariantes cadastrados ou sem cabeçalho na aba 'birthdays'.")
 else:
-    r = bd_df.iloc[bday_i % len(bd_df)]
-    # dia: aceita "YYYY-MM-DD" -> pegamos apenas o dia
-    day = str(r["birthday"])[-2:]
-    bday_card(r["name"], r["sector"], day, r["photo_url"])
+    r = bd_df.iloc[bday_i]
+    name = r.get("name", "")
+    sector = r.get("sector", "")
+    birthday = str(r.get("birthday", ""))[-2:] if r.get("birthday") else "--"
+    photo_url = r.get("photo_url", "")
+    bday_card(name, sector, birthday, photo_url)
 st.markdown("</div>", unsafe_allow_html=True)
 
 # D - Vídeos
@@ -73,16 +104,15 @@ st.markdown("<div class='title'>🎬 Vídeos institucionais</div>", unsafe_allow
 if current_vid is None:
     st.info("Sem vídeos.")
 else:
-    url = str(current_vid["url"])
-    # Se YouTube, forçar mute+autoplay
+    url = str(current_vid.get("url", ""))
     if "youtube.com" in url or "youtu.be" in url:
-        if "?" in url: url += "&autoplay=1&mute=1"
-        else: url += "?autoplay=1&mute=1"
+        url = url + ("&" if "?" in url else "?") + "autoplay=1&mute=1"
         st.video(url)
-    elif url.lower().endswith((".mp4",".webm",".ogg")):
-        st.markdown(f"""
-            <video src="{url}" autoplay muted playsinline style="width:100%;border-radius:12px;" />
-        """, unsafe_allow_html=True)
+    elif url.lower().endswith((".mp4", ".webm", ".ogg")):
+        st.markdown(
+            f"""<video src="{url}" autoplay muted playsinline style="width:100%;border-radius:12px;" />""",
+            unsafe_allow_html=True
+        )
     else:
         st.video(url)
 st.markdown("</div>", unsafe_allow_html=True)
@@ -94,23 +124,19 @@ st.markdown("</div>", unsafe_allow_html=True)
 
 # F - Ticker (Previsão do Tempo)
 st.markdown("<div class='f'>", unsafe_allow_html=True)
-weather_ticker(weather_df)
+weather_ticker(weather_df if weather_df is not None else pd.DataFrame())
 st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# AUTOREFRESH coordenado: notícias 10s; vídeos conforme duração
-from streamlit.runtime.scriptrunner import add_script_run_ctx
-from streamlit_autorefresh import st_autorefresh as auto  # se não quiser extra dep, substitua por st.experimental_rerun timer
+# --------------------------------- Auto refresh ----------------------------------
+refresh_ms = min(news_interval_ms, vid_ms)
+st.markdown(
+    f"<script>setTimeout(function(){{ window.location.reload(); }}, {refresh_ms});</script>",
+    unsafe_allow_html=True
+)
 
-# Implemento simples sem lib externa:
-st.markdown(f"""
-<script>
-setTimeout(function(){{ window.location.reload(); }}, {min(news_interval, vid_ms)});
-</script>
-""", unsafe_allow_html=True)
-
-# Atualizar índices no próximo ciclo
-st.session_state["rot_news"] = (st.session_state.get("rot_news",0)+1) % max(len(news_df),1)
-st.session_state["rot_bdays"] = (st.session_state.get("rot_bdays",0)+1) % max(len(bd_df),1)
-st.session_state["rot_videos"] = (st.session_state.get("rot_videos",0)+1) % max(len(vid_df),1)
+# Atualiza índices para o próximo ciclo
+st.session_state["rot_news"]   = (st.session_state.get("rot_news", 0) + 1) % max(safe_len(news_df), 1)
+st.session_state["rot_bdays"]  = (st.session_state.get("rot_bdays", 0) + 1) % max(safe_len(bd_df), 1)
+st.session_state["rot_videos"] = (st.session_state.get("rot_videos", 0) + 1) % max(safe_len(vid_df), 1)
