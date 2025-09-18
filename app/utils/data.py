@@ -14,7 +14,6 @@ def fetch_weather(units_df: pd.DataFrame) -> pd.DataFrame:
 
     units_df = units_df.copy()
     units_df.columns = [str(c).strip() for c in units_df.columns]
-    # aplica filtro 'active' se existir
     if "active" in units_df.columns:
         units_df = units_df[units_df["active"].astype(str).str.lower().isin(["true","1","yes"])]
 
@@ -50,7 +49,6 @@ def fetch_weather(units_df: pd.DataFrame) -> pd.DataFrame:
                 "weathercode": cur.get("weathercode"),
             })
         except Exception:
-            # falha de rede/API: ignora essa unidade
             continue
 
     return pd.DataFrame(rows, columns=cols)
@@ -107,7 +105,6 @@ def world_times():
     return res
 
 def get_rotation_index(key: str, total: int, default_interval_ms: int) -> int:
-    """Mantém um índice em st.session_state e avança a cada refresh (compat)."""
     if total <= 0:
         return 0
     idx_key = f"rot_{key}"

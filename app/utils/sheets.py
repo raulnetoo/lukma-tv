@@ -26,9 +26,10 @@ DEFAULT_COLUMNS = {
     "settings": ["key","value"],
 }
 
-# ---- Controle de cota: retry exponencial em 429 ----
+# ---- Controle de cota: retry exponencial em 429, e pequeno espaçamento entre leituras ----
 MAX_RETRIES = 4
-BASE_SLEEP = 1.0  # segundos
+BASE_SLEEP = 1.0  # segundos entre retries (exponential backoff)
+BETWEEN_READ_SLEEP = 0.4  # pequeno intervalo entre leituras de abas
 
 def _with_retry(fn, *args, **kwargs):
     attempt = 0
@@ -93,64 +94,59 @@ def _sheet():
         st.exception(e)
         raise
 
-# ---------------- Leitura EM LOTE (uma chamada) ----------------
-def _ranges_from_names(names: List[str], end_col: str = "Z", end_row: int = 1000) -> List[str]:
-    # aspas no título da aba para suportar espaços
-    return [f"'{name}'!A1:{end_col}{end_row}" for name in names]
-
 def _values_to_df(values: List[List[str]], ws_name: str) -> pd.DataFrame:
-    """Converte o retorno de uma faixa A1 em DataFrame."""
+    """Converte get_all_values() em DataFrame, com fallback de colunas padrão."""
     if not values:
-        # vazio -> devolve colunas padrão se conhecidas
         if ws_name in DEFAULT_COLUMNS:
             return pd.DataFrame(columns=DEFAULT_COLUMNS[ws_name])
         return pd.DataFrame()
-
     headers = [str(h).strip() for h in values[0]] if values else []
     rows = values[1:] if len(values) > 1 else []
     if not headers:
         if ws_name in DEFAULT_COLUMNS:
             return pd.DataFrame(columns=DEFAULT_COLUMNS[ws_name])
         return pd.DataFrame()
-
     df = pd.DataFrame(rows, columns=headers) if rows else pd.DataFrame(columns=headers)
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)  # cache por 3 minutos para segurar cota
 def read_tables(ws_names: List[str]) -> Dict[str, pd.DataFrame]:
     """
-    Lê várias abas de uma vez via batch_get (reduz drasticamente chamadas).
-    Cache de 120s para segurar a cota.
+    Lê várias abas de forma sequencial (compatível com qualquer versão do gspread).
+    Usa retry, pequeno intervalo entre leituras e cache global.
     """
+    out: Dict[str, pd.DataFrame] = {}
     try:
         sh = _sheet()
-        ranges = _ranges_from_names(ws_names, end_col="Z", end_row=1000)
-        # batch_get retorna uma lista com os valores de cada range, na ordem
-        results = _with_retry(sh.batch_get, ranges)
-        out: Dict[str, pd.DataFrame] = {}
-        for name, values in zip(ws_names, results):
-            out[name] = _values_to_df(values, name)
-        # Garante colunas padrão para abas que não vieram
+        for i, name in enumerate(ws_names):
+            try:
+                ws = _with_retry(sh.worksheet, name)
+                values = _with_retry(ws.get_all_values)
+                out[name] = _values_to_df(values, name)
+            except Exception as sub_e:
+                # Em falha (incluindo cota 429 depois de retries), devolve schema vazio
+                out[name] = pd.DataFrame(columns=DEFAULT_COLUMNS.get(name, []))
+            if i < len(ws_names) - 1:
+                time.sleep(BETWEEN_READ_SLEEP)
+        # Garante que todas as chaves existam
         for name in ws_names:
             if name not in out:
                 out[name] = pd.DataFrame(columns=DEFAULT_COLUMNS.get(name, []))
         return out
     except Exception as e:
-        st.error("❌ Falha ao ler abas em lote (pode ser cota 429). Usando schema padrão vazio.")
+        st.error("❌ Falha ao ler abas (pode ser cota 429). Usando schema padrão vazio.")
         st.exception(e)
-        out = {name: pd.DataFrame(columns=DEFAULT_COLUMNS.get(name, [])) for name in ws_names}
-        return out
+        return {name: pd.DataFrame(columns=DEFAULT_COLUMNS.get(name, [])) for name in ws_names}
 
-# ---------------- APIs compatíveis com o restante do projeto ----------------
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def read_df(ws_name: str) -> pd.DataFrame:
-    """Compat: lê uma aba (usa internamente o batch)."""
+    """Compat: lê uma aba (usa internamente a leitura sequencial cacheada)."""
     tables = read_tables([ws_name])
     return tables.get(ws_name, pd.DataFrame(columns=DEFAULT_COLUMNS.get(ws_name, [])))
 
 def replace_df(ws_name: str, df: pd.DataFrame):
-    """Grava a aba inteira (não usa batch para escrita)."""
+    """Grava a aba inteira."""
     try:
         sh = _sheet()
         ws = _with_retry(sh.worksheet, ws_name)

@@ -12,9 +12,9 @@ inject_base_css()
 # botão/ícone para login (painel)
 st.markdown("<a class='logo-btn' href='/1_Admin' target='_self'>⚙️ Admin</a>", unsafe_allow_html=True)
 
-# ------------------------------ Leitura EM LOTE ---------------------------------
+# ------------------------------ Leitura sequencial (cacheada) ---------------------------------
 TABLES = ["news","birthdays","videos","weather_units","worldclocks"]
-tables = read_tables(TABLES)  # UMA chamada ao Sheets (cacheada por 120s)
+tables = read_tables(TABLES)  # cache 180s — reduz bastante leituras
 
 def filter_active(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -25,15 +25,17 @@ def filter_active(df: pd.DataFrame) -> pd.DataFrame:
         df = df[df["active"].astype(str).str.lower().isin(["true","1","yes"])]
     return df.reset_index(drop=True)
 
-news_df = filter_active(tables.get("news"))
-bd_df   = filter_active(tables.get("birthdays"))
-vid_df  = filter_active(tables.get("videos"))
+def safe_len(df: pd.DataFrame) -> int:
+    return 0 if df is None or df.empty else len(df)
 
-wu_df_raw = tables.get("weather_units") or pd.DataFrame()
-wu_df_raw.columns = [str(c).strip() for c in wu_df_raw.columns]
+news_df = filter_active(tables.get("news", pd.DataFrame()))
+bd_df   = filter_active(tables.get("birthdays", pd.DataFrame()))
+vid_df  = filter_active(tables.get("videos", pd.DataFrame()))
+
+wu_df_raw = tables.get("weather_units", pd.DataFrame())
 wu_df = filter_active(wu_df_raw) if not wu_df_raw.empty else pd.DataFrame()
 
-wc_df = tables.get("worldclocks") or pd.DataFrame()
+wc_df = tables.get("worldclocks", pd.DataFrame())
 
 # WEATHER & RATES (cacheados)
 weather_df = fetch_weather(wu_df if not wu_df.empty else pd.DataFrame())
@@ -42,9 +44,6 @@ times = world_times()
 
 # -------------------------- Índices de rotação / refresh ------------------------
 news_interval_ms = int(st.secrets["app"].get("news_rotation_seconds", 10)) * 1000
-def safe_len(df: pd.DataFrame) -> int:
-    return 0 if df is None or df.empty else len(df)
-
 news_i = st.session_state.get("rot_news", 0) % max(safe_len(news_df), 1)
 bday_i = st.session_state.get("rot_bdays", 0) % max(safe_len(bd_df), 1)
 
