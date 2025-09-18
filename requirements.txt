@@ -1,0 +1,9 @@
+streamlit
+streamlit-authenticator
+gspread
+google-auth
+pandas
+requests
+bcrypt
+python-dateutil
+pytz
