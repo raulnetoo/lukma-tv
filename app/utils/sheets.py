@@ -1,7 +1,9 @@
+import time
 import gspread
 import streamlit as st
-from google.oauth2.service_account import Credentials
 import pandas as pd
+from google.oauth2.service_account import Credentials
+from gspread.exceptions import APIError
 
 SCOPE = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -22,6 +24,27 @@ DEFAULT_COLUMNS = {
     "settings": ["key","value"],
 }
 
+MAX_RETRIES = 3
+BASE_SLEEP = 1.2  # segundos (exponential backoff)
+
+def _with_retry(fn, *args, **kwargs):
+    """Executa função com retry exponencial em caso de 429 ou erros transitórios."""
+    attempt = 0
+    while True:
+        try:
+            return fn(*args, **kwargs)
+        except APIError as e:
+            msg = str(e)
+            is_429 = "429" in msg or "Quota exceeded" in msg
+            attempt += 1
+            if attempt >= MAX_RETRIES or not is_429:
+                raise
+            sleep_for = BASE_SLEEP * (2 ** (attempt - 1))
+            time.sleep(sleep_for)
+        except Exception:
+            # erros permanentes não devem ficar em loop
+            raise
+
 @st.cache_resource(show_spinner=False)
 def _client():
     """Autentica no Google com Service Account vinda do secrets."""
@@ -35,13 +58,13 @@ def _client():
             ❌ Erro ao autenticar no Google Sheets.
 
             **Verifique:**
-            - Se a seção `[gcp_service_account]` em *Secrets* contém o JSON COMPLETO da Service Account.
-            - Se o campo `private_key` está correto (multilinha `\"\"\"...\"\"\"` sem espaços extras, OU uma linha com `\\n`).
-            - Se `project_id` e `client_email` estão corretos.
-            - Se a planilha foi compartilhada com o `client_email` como **Editor**.
-            - Se as APIs **Google Sheets API** e **Google Drive API** estão ativas no Google Cloud.
+            - `[gcp_service_account]` completo (JSON) em *Secrets*.
+            - `private_key` corretamente formatada (multilinha `"""..."""` OU uma linha com `\\n`).
+            - `project_id` e `client_email` corretos.
+            - Planilha compartilhada com o `client_email` (Editor).
+            - APIs **Sheets** e **Drive** ativas no Google Cloud.
 
-            Detalhes técnicos nos logs abaixo:
+            Detalhes técnicos:
             """
         )
         st.exception(e)
@@ -52,40 +75,40 @@ def _sheet():
     """Abre a planilha pelo ID definido em secrets."""
     try:
         client = _client()
-        return client.open_by_key(st.secrets["gsheets"]["spreadsheet_id"])
+        return _with_retry(client.open_by_key, st.secrets["gsheets"]["spreadsheet_id"])
     except Exception as e:
         st.error(
             """
-            ❌ Erro ao abrir a planilha no Google Sheets.
+            ❌ Erro ao abrir a planilha do Google Sheets.
 
             **Verifique:**
-            - `[gsheets].spreadsheet_id` em *Secrets* (é o trecho entre /d/ e /edit).
-            - Se a planilha foi compartilhada com o `client_email` da Service Account.
-            - Se a planilha contém as abas esperadas:
-              `users`, `news`, `birthdays`, `videos`, `weather_units`, `worldclocks`, `settings`.
+            - `[gsheets].spreadsheet_id` (trecho entre /d/ e /edit).
+            - Compartilhamento com o `client_email` da Service Account.
+            - Abas esperadas: `users`, `news`, `birthdays`, `videos`, `weather_units`, `worldclocks`, `settings`.
 
-            Detalhes técnicos nos logs abaixo:
+            Detalhes técnicos:
             """
         )
         st.exception(e)
         raise
 
+@st.cache_data(ttl=60, show_spinner=False)  # cache por 60s para reduzir leituras
 def read_df(ws_name: str) -> pd.DataFrame:
-    """Lê uma aba da planilha como DataFrame. Se estiver vazia, retorna DF com colunas padrão."""
+    """Lê uma aba como DataFrame. Usa retry+cache e retorna colunas padrão se vazio."""
     try:
-        ws = _sheet().worksheet(ws_name)
-        rows = ws.get_all_records()
+        sh = _sheet()
+        ws = _with_retry(sh.worksheet, ws_name)
+        rows = _with_retry(ws.get_all_records)
         df = pd.DataFrame(rows)
-        # Normaliza nomes de coluna (remove espaços acidentais)
         if not df.empty:
             df.columns = [str(c).strip() for c in df.columns]
         if df.empty and ws_name in DEFAULT_COLUMNS:
             df = pd.DataFrame(columns=DEFAULT_COLUMNS[ws_name])
         return df
     except Exception as e:
-        st.error(f"❌ Falha ao ler a aba `{ws_name}`. Confirme se a aba existe na planilha.")
+        st.error(f"❌ Falha ao ler a aba `{ws_name}`. Pode ser cota (429) ou aba ausente.")
         st.exception(e)
-        # Em erro, retorna DF com colunas padrão (se conhecidas) para não quebrar o app
+        # retorna colunas padrão (se houver) para não quebrar o app
         if ws_name in DEFAULT_COLUMNS:
             return pd.DataFrame(columns=DEFAULT_COLUMNS[ws_name])
         return pd.DataFrame()
@@ -93,17 +116,18 @@ def read_df(ws_name: str) -> pd.DataFrame:
 def replace_df(ws_name: str, df: pd.DataFrame):
     """Substitui todo o conteúdo da aba pelo DataFrame informado."""
     try:
-        ws = _sheet().worksheet(ws_name)
-        ws.clear()
+        sh = _sheet()
+        ws = _with_retry(sh.worksheet, ws_name)
+        _with_retry(ws.clear)
         if df is None or df.empty:
-            # Mantém apenas cabeçalho se conhecido
             if ws_name in DEFAULT_COLUMNS:
-                ws.update([DEFAULT_COLUMNS[ws_name]])
+                _with_retry(ws.update, [DEFAULT_COLUMNS[ws_name]])
             else:
-                ws.update([[]])
+                _with_retry(ws.update, [[]])
             return
         df = df.fillna("")
-        ws.update([df.columns.tolist()] + df.values.tolist())
+        _with_retry(ws.update, [df.columns.tolist()] + df.values.tolist())
+        read_df.clear()  # invalida cache de leitura dessa aba
     except Exception as e:
         st.error(f"❌ Falha ao gravar na aba `{ws_name}`.")
         st.exception(e)
@@ -112,20 +136,22 @@ def replace_df(ws_name: str, df: pd.DataFrame):
 def append_row(ws_name: str, row: dict):
     """Acrescenta uma linha de acordo com o cabeçalho existente."""
     try:
-        ws = _sheet().worksheet(ws_name)
-        headers = ws.row_values(1)
+        sh = _sheet()
+        ws = _with_retry(sh.worksheet, ws_name)
+        headers = _with_retry(ws.row_values, 1)
         if not headers and ws_name in DEFAULT_COLUMNS:
             headers = DEFAULT_COLUMNS[ws_name]
-            ws.update([headers])
+            _with_retry(ws.update, [headers])
         values = [str(row.get(h, "")) for h in headers]
-        ws.append_row(values, value_input_option="USER_ENTERED")
+        _with_retry(ws.append_row, values, value_input_option="USER_ENTERED")
+        read_df.clear()  # invalida cache
     except Exception as e:
         st.error(f"❌ Falha ao inserir linha na aba `{ws_name}`.")
         st.exception(e)
         raise
 
 def upsert_row(ws_name: str, key_field: str, row: dict):
-    """Atualiza a linha que tem key_field==row[key_field]; se não existir, insere."""
+    """Atualiza a linha com key_field==row[key_field]; se não existir, insere."""
     try:
         df = read_df(ws_name)
         if ws_name in DEFAULT_COLUMNS and (df.empty or key_field not in df.columns):
@@ -139,7 +165,6 @@ def upsert_row(ws_name: str, key_field: str, row: dict):
                         df.loc[idx[0], k] = v
                 replace_df(ws_name, df)
                 return
-        # Se não achou, insere
         append_row(ws_name, row)
     except Exception as e:
         st.error(f"❌ Falha ao salvar (upsert) na aba `{ws_name}`.")
