@@ -3,7 +3,14 @@ import streamlit as st
 
 from utils.sheets import read_tables
 from utils.data import fetch_weather, fetch_rates, world_times
-from utils.ui import inject_base_css, news_card, bday_card, weather_ticker, video_player, line_e_block
+from utils.ui import (
+    inject_base_css,
+    news_card,
+    bday_card,
+    weather_ticker,
+    video_player,     # << nome correto
+    line_e_block,     # << nome correto
+)
 
 # ------------------------------ Config & CSS ------------------------------
 st.set_page_config(page_title="Lukma TV", page_icon="📺", layout="wide")
@@ -44,15 +51,18 @@ bday_i = st.session_state.get("rot_bdays", 0) % max(safe_len(bd_df), 1)
 vid_default_ms = 30_000
 if safe_len(vid_df) > 0:
     current_vid = vid_df.iloc[st.session_state.get("rot_videos", 0) % len(vid_df)]
-    try: vid_ms = int(float(current_vid.get("duration_seconds") or 30)) * 1000
-    except Exception: vid_ms = vid_default_ms
+    try:
+        vid_ms = int(float(current_vid.get("duration_seconds") or 30)) * 1000
+    except Exception:
+        vid_ms = vid_default_ms
 else:
-    current_vid = None; vid_ms = vid_default_ms
+    current_vid = None
+    vid_ms = vid_default_ms
 
 # ------------------------------ GRID ------------------------------
 st.markdown("<div class='grid'>", unsafe_allow_html=True)
 
-# A - Notícias (imagem menor no topo + título/descrição centralizados)
+# A - Notícias
 st.markdown("<div class='area a'>", unsafe_allow_html=True)
 if safe_len(news_df) == 0:
     st.markdown("<div class='title'>📰 Notícias</div><div class='empty'>Sem notícias ativas.</div>", unsafe_allow_html=True)
@@ -66,7 +76,8 @@ st.markdown("<div class='area c'>", unsafe_allow_html=True)
 if safe_len(bd_df) == 0:
     st.markdown("<div class='title'>🎉 Aniversariante do mês</div><div class='empty'>Sem aniversariantes.</div>", unsafe_allow_html=True)
 else:
-    r = bd_df.iloc[bday_i]; day = str(r.get("birthday",""))[-2:] if r.get("birthday") else "--"
+    r = bd_df.iloc[bday_i]
+    day = str(r.get("birthday",""))[-2:] if r.get("birthday") else "--"
     bday_card(r.get("name",""), r.get("sector",""), day, r.get("photo_url",""))
 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -78,12 +89,12 @@ else:
     video_player(str(current_vid.get("url","")))
 st.markdown("</div>", unsafe_allow_html=True)
 
-# E - (3 cartões): Câmbio | Horários | Clima (1ª unidade)
+# E - 3 cartões: Câmbio | Horários | Clima (1ª unidade)
 st.markdown("<div class='area e'>", unsafe_allow_html=True)
 line_e_block(times, rates, weather_df if weather_df is not None else pd.DataFrame())
 st.markdown("</div>", unsafe_allow_html=True)
 
-# F - Ticker (tempo) — opcional
+# F - Ticker (tempo)
 st.markdown("<div class='area f'>", unsafe_allow_html=True)
 weather_ticker(weather_df if weather_df is not None else pd.DataFrame())
 st.markdown("</div>", unsafe_allow_html=True)
