@@ -3,7 +3,7 @@ import streamlit as st
 
 from utils.sheets import read_tables
 from utils.data import fetch_weather, fetch_rates, world_times
-from utils.ui import inject_base_css, news_card, bday_card, clocks_block, weather_ticker, video_player
+from utils.ui import inject_base_css, news_card, bday_card, weather_ticker, video_player, line_e_block
 
 # ------------------------------ Config & CSS ------------------------------
 st.set_page_config(page_title="Lukma TV", page_icon="📺", layout="wide")
@@ -36,7 +36,7 @@ weather_df = fetch_weather(wu_df if not wu_df.empty else pd.DataFrame())
 rates = fetch_rates()
 times = world_times()
 
-# rotação
+# rotação (notícia, aniversariante, vídeo)
 news_interval_ms = int(st.secrets["app"].get("news_rotation_seconds", 10)) * 1000
 news_i = st.session_state.get("rot_news", 0) % max(safe_len(news_df), 1)
 bday_i = st.session_state.get("rot_bdays", 0) % max(safe_len(bd_df), 1)
@@ -52,7 +52,7 @@ else:
 # ------------------------------ GRID ------------------------------
 st.markdown("<div class='grid'>", unsafe_allow_html=True)
 
-# A - Notícias (com placeholder estilizado)
+# A - Notícias (imagem menor no topo + título/descrição centralizados)
 st.markdown("<div class='area a'>", unsafe_allow_html=True)
 if safe_len(news_df) == 0:
     st.markdown("<div class='title'>📰 Notícias</div><div class='empty'>Sem notícias ativas.</div>", unsafe_allow_html=True)
@@ -78,12 +78,12 @@ else:
     video_player(str(current_vid.get("url","")))
 st.markdown("</div>", unsafe_allow_html=True)
 
-# E - Horas + Moedas
+# E - (3 cartões): Câmbio | Horários | Clima (1ª unidade)
 st.markdown("<div class='area e'>", unsafe_allow_html=True)
-clocks_block(times, rates)
+line_e_block(times, rates, weather_df if weather_df is not None else pd.DataFrame())
 st.markdown("</div>", unsafe_allow_html=True)
 
-# F - Ticker (tempo)
+# F - Ticker (tempo) — opcional
 st.markdown("<div class='area f'>", unsafe_allow_html=True)
 weather_ticker(weather_df if weather_df is not None else pd.DataFrame())
 st.markdown("</div>", unsafe_allow_html=True)
