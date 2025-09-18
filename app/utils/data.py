@@ -1,20 +1,17 @@
 import requests
 import pandas as pd
 import streamlit as st
-from dateutil import tz
-
-from .sheets import read_df
 
 @st.cache_data(ttl=900, show_spinner=False)  # 15 min
 def fetch_weather(units_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Retorna DF com alias, temp, windspeed, weathercode.
-    Defensivo: funciona mesmo se units_df estiver vazio ou sem coluna 'active'.
+    Retorna DF com alias, temperature, windspeed, weathercode.
+    Defensivo: funciona se units_df estiver vazio/sem 'active'.
     """
+    cols = ["alias","temperature","windspeed","weathercode"]
     if units_df is None or units_df.empty:
-        return pd.DataFrame(columns=["alias","temperature","windspeed","weathercode"])
+        return pd.DataFrame(columns=cols)
 
-    # normaliza colunas
     units_df = units_df.copy()
     units_df.columns = [str(c).strip() for c in units_df.columns]
     # aplica filtro 'active' se existir
@@ -22,26 +19,24 @@ def fetch_weather(units_df: pd.DataFrame) -> pd.DataFrame:
         units_df = units_df[units_df["active"].astype(str).str.lower().isin(["true","1","yes"])]
 
     if units_df.empty:
-        return pd.DataFrame(columns=["alias","temperature","windspeed","weathercode"])
+        return pd.DataFrame(columns=cols)
 
     rows = []
     for _, r in units_df.iterrows():
         lat = r.get("latitude"); lon = r.get("longitude")
         city = r.get("city")
         alias = r.get("alias") or city or "Unidade"
-
         try:
             if (not lat or not lon) and city:
-                # geocoding Open-Meteo (sem chave)
-                g = requests.get("https://geocoding-api.open-meteo.com/v1/search",
-                                 params={"name": city, "count": 1, "language": "pt"}, timeout=10).json()
+                g = requests.get(
+                    "https://geocoding-api.open-meteo.com/v1/search",
+                    params={"name": city, "count": 1, "language": "pt"},
+                    timeout=10
+                ).json()
                 if g.get("results"):
                     lat = g["results"][0]["latitude"]; lon = g["results"][0]["longitude"]
-
             if not lat or not lon:
-                # sem coordenadas → pula
                 continue
-
             w = requests.get(
                 "https://api.open-meteo.com/v1/forecast",
                 params={"latitude": lat, "longitude": lon, "current_weather": True, "timezone": "America/Sao_Paulo"},
@@ -55,10 +50,10 @@ def fetch_weather(units_df: pd.DataFrame) -> pd.DataFrame:
                 "weathercode": cur.get("weathercode"),
             })
         except Exception:
-            # falha de rede/API: segue para próxima unidade
+            # falha de rede/API: ignora essa unidade
             continue
 
-    return pd.DataFrame(rows, columns=["alias","temperature","windspeed","weathercode"])
+    return pd.DataFrame(rows, columns=cols)
 
 def weather_emoji(code: int) -> str:
     try:
@@ -88,7 +83,8 @@ def fetch_rates() -> dict:
         pass
     try:
         cg = requests.get("https://api.coingecko.com/api/v3/simple/price",
-                          params={"ids":"bitcoin,ethereum","vs_currencies":"brl"}, timeout=10).json()
+                          params={"ids":"bitcoin,ethereum","vs_currencies":"brl"},
+                          timeout=10).json()
         out["BTC"] = cg.get("bitcoin",{}).get("brl")
         out["ETH"] = cg.get("ethereum",{}).get("brl")
     except Exception:
@@ -111,7 +107,7 @@ def world_times():
     return res
 
 def get_rotation_index(key: str, total: int, default_interval_ms: int) -> int:
-    """Mantém um índice em st.session_state e avança a cada refresh (não usado diretamente aqui)."""
+    """Mantém um índice em st.session_state e avança a cada refresh (compat)."""
     if total <= 0:
         return 0
     idx_key = f"rot_{key}"
