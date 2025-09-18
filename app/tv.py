@@ -3,7 +3,7 @@ import streamlit as st
 
 from utils.sheets import read_tables
 from utils.data import fetch_weather, fetch_rates, world_times
-from utils.ui import inject_base_css, news_card, bday_card, clocks_block, weather_ticker
+from utils.ui import inject_base_css, news_card, bday_card, clocks_block, weather_ticker, video_player
 
 # --------------------------------- Config & CSS ---------------------------------
 st.set_page_config(page_title="Lukma TV", page_icon="📺", layout="wide")
@@ -12,9 +12,9 @@ inject_base_css()
 # botão/ícone para login (painel)
 st.markdown("<a class='logo-btn' href='/1_Admin' target='_self'>⚙️ Admin</a>", unsafe_allow_html=True)
 
-# ------------------------------ Leitura sequencial (cacheada) ---------------------------------
+# ------------------------------ Leitura cacheada ---------------------------------
 TABLES = ["news","birthdays","videos","weather_units","worldclocks"]
-tables = read_tables(TABLES)  # cache 180s — reduz bastante leituras
+tables = read_tables(TABLES)
 
 def filter_active(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -37,7 +37,7 @@ wu_df = filter_active(wu_df_raw) if not wu_df_raw.empty else pd.DataFrame()
 
 wc_df = tables.get("worldclocks", pd.DataFrame())
 
-# WEATHER & RATES (cacheados)
+# WEATHER & RATES (cache)
 weather_df = fetch_weather(wu_df if not wu_df.empty else pd.DataFrame())
 rates = fetch_rates()
 times = world_times()
@@ -47,7 +47,7 @@ news_interval_ms = int(st.secrets["app"].get("news_rotation_seconds", 10)) * 100
 news_i = st.session_state.get("rot_news", 0) % max(safe_len(news_df), 1)
 bday_i = st.session_state.get("rot_bdays", 0) % max(safe_len(bd_df), 1)
 
-# vídeos: duração por item; default 30s
+# vídeo atual + duração (default 30s)
 vid_default_ms = 30_000
 if safe_len(vid_df) > 0:
     current_vid = vid_df.iloc[st.session_state.get("rot_videos", 0) % len(vid_df)]
@@ -65,7 +65,7 @@ st.markdown("<div class='grid'>", unsafe_allow_html=True)
 # A - Notícias
 st.markdown("<div class='a'>", unsafe_allow_html=True)
 if safe_len(news_df) == 0:
-    st.info("Sem notícias ativas ou cabeçalho ausente na aba 'news'.")
+    st.info("Sem notícias ativas.")
 else:
     r = news_df.iloc[news_i]
     news_card(r.get("title",""), r.get("description",""), r.get("image_url",""))
@@ -74,30 +74,19 @@ st.markdown("</div>", unsafe_allow_html=True)
 # C - Aniversariantes
 st.markdown("<div class='c'>", unsafe_allow_html=True)
 if safe_len(bd_df) == 0:
-    st.info("Sem aniversariantes (ou cabeçalho ausente em 'birthdays').")
+    st.info("Sem aniversariantes.")
 else:
     r = bd_df.iloc[bday_i]
     day = str(r.get("birthday",""))[-2:] if r.get("birthday") else "--"
     bday_card(r.get("name",""), r.get("sector",""), day, r.get("photo_url",""))
 st.markdown("</div>", unsafe_allow_html=True)
 
-# D - Vídeos
+# D - Vídeos (player com tamanho padronizado 16:9)
 st.markdown("<div class='d'>", unsafe_allow_html=True)
-st.markdown("<div class='title'>🎬 Vídeos institucionais</div>", unsafe_allow_html=True)
 if current_vid is None:
     st.info("Sem vídeos.")
 else:
-    url = str(current_vid.get("url", ""))
-    if "youtube.com" in url or "youtu.be" in url:
-        url = url + ("&" if "?" in url else "?") + "autoplay=1&mute=1"
-        st.video(url)
-    elif url.lower().endswith((".mp4",".webm",".ogg")):
-        st.markdown(
-            f"""<video src="{url}" autoplay muted playsinline style="width:100%;border-radius:12px;" />""",
-            unsafe_allow_html=True
-        )
-    else:
-        st.video(url)
+    video_player(str(current_vid.get("url","")))
 st.markdown("</div>", unsafe_allow_html=True)
 
 # E - Horas + Moedas
@@ -119,7 +108,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Atualiza índices para o próximo ciclo
+# Atualiza índices
 st.session_state["rot_news"]   = (st.session_state.get("rot_news", 0) + 1) % max(safe_len(news_df), 1)
 st.session_state["rot_bdays"]  = (st.session_state.get("rot_bdays", 0) + 1) % max(safe_len(bd_df), 1)
 st.session_state["rot_videos"] = (st.session_state.get("rot_videos", 0) + 1) % max(safe_len(vid_df), 1)

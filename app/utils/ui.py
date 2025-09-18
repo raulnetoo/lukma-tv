@@ -1,4 +1,3 @@
-import math
 import streamlit as st
 import pandas as pd
 from typing import Dict, List, Tuple
@@ -8,170 +7,171 @@ def inject_base_css():
         """
         <style>
         :root{
+          /* Paleta */
           --bg:#0b1220;
-          --card:#111827;
+          --card:#0f172a;
+          --card-border:#1f2a3a;
           --muted:#9CA3AF;
           --text:#F9FAFB;
-          --blue:#2563eb;
-          --green:#10b981;
-          --pink:#ec4899;
-          --yellow:#f59e0b;
-          --red:#ef4444;
           --shadow: 0 10px 30px rgba(0,0,0,.25);
           --radius: 16px;
+
+          /* Tamanhos padronizados */
+          --avatar-size: 140px;         /* foto aniversariante */
+          --news-media-ratio: 4 / 3;    /* proporção da mídia de notícias */
+          --news-media-min-h: 220px;    /* altura mínima da mídia de notícias */
+          --video-ratio: 16 / 9;        /* player de vídeo */
+          --video-max-h: 520px;         /* altura máxima do player */
+          --block-pad: 14px;
+          --gap: 16px;
         }
+
         html, body, [data-testid="stAppViewContainer"]{
           background: radial-gradient(1200px 600px at 10% 10%, #0f172a 10%, #0b1220 60%, #0b1220 100%) fixed;
           color: var(--text);
         }
-        /* remove paddings laterais do Streamlit */
         [data-testid="stAppViewBlockContainer"]{padding-top: 1rem; padding-bottom: 0;}
 
-        /* Botão/ícone do Admin (canto superior esquerdo) */
+        /* Botão Admin fixo (canto sup. esq.) */
         .logo-btn{
           position: fixed; top: 12px; left: 16px; z-index: 9999;
-          background: #0f172a; border: 1px solid #1f2937; color: #e5e7eb;
+          background: var(--card); border: 1px solid var(--card-border); color: #e5e7eb;
           padding: 8px 12px; border-radius: 999px; text-decoration: none; box-shadow: var(--shadow);
-          transition: transform .15s ease, background .2s ease, border-color .2s ease;
-          font-weight: 600;
+          font-weight: 600; transition: transform .15s ease, background .2s ease, border-color .2s ease;
         }
         .logo-btn:hover{ transform: translateY(-2px); background:#111827; border-color:#374151; }
 
-        /* GRID principal
-           Layout desejado:
+        /* GRID desejado:
            aaadddd
            aaadddd
            cccdddd
            ccceeee
-           fffffff  (ticker)
+           fffffff
         */
         .grid{
           display: grid;
           grid-template-columns: repeat(8, 1fr);
-          grid-template-rows: auto auto auto auto 66px;
+          grid-template-rows: auto auto auto auto 72px;
           grid-template-areas:
             "a a a d d d d d"
             "a a a d d d d d"
             "c c c d d d d d"
             "c c c e e e e e"
             "f f f f f f f f";
-          gap: 16px;
-          padding: 56px 16px 12px 16px; /* espaço pro botão admin */
+          gap: var(--gap);
+          padding: 56px 16px 12px 16px; /* espaço do botão admin */
         }
         .grid > .a, .grid > .c, .grid > .d, .grid > .e{
           background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
-          border: 1px solid rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.08);
           border-radius: var(--radius);
           box-shadow: var(--shadow);
           overflow: hidden;
           position: relative;
         }
-        .grid > .a{ grid-area: a; min-height: 360px; }
-        .grid > .c{ grid-area: c; min-height: 280px; }
+        .grid > .a{ grid-area: a; min-height: 420px; }
+        .grid > .c{ grid-area: c; min-height: 320px; }
         .grid > .d{ grid-area: d; min-height: 520px; }
         .grid > .e{ grid-area: e; min-height: 220px; }
-
         .grid > .f{
-          grid-area: f; height: 66px;
-          background: #0a1629; border: 1px solid rgba(255,255,255,0.06);
-          border-radius: var(--radius);
-          box-shadow: var(--shadow); overflow: hidden; position: relative;
+          grid-area: f; height: 72px;
+          background: #0a1629; border: 1px solid rgba(255,255,255,0.08);
+          border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; position: relative;
         }
 
-        /* Títulos internos */
+        /* Título interno */
         .title{
           font-weight: 700; letter-spacing: .3px; color:#e5e7eb;
           border-bottom: 1px dashed rgba(255,255,255,0.08);
           padding: 10px 14px; background: rgba(255,255,255,0.02);
         }
 
-        /* Card padrões */
-        .card{
-          padding: 14px; display: flex; gap: 14px; align-items: stretch;
-        }
+        /* Card de notícia com mídia em proporção fixa */
+        .card{ padding: var(--block-pad); display: grid; grid-template-columns: 42% 58%; gap: var(--gap); align-items: start; }
         .media{
-          width: 38%; min-height: 200px; border-radius: 12px; overflow: hidden; background:#0b1324; border:1px solid rgba(255,255,255,0.06)
+          border-radius: 12px; overflow: hidden; background:#0b1324; border:1px solid rgba(255,255,255,0.08);
+          aspect-ratio: var(--news-media-ratio); min-height: var(--news-media-min-h);
+          width: 100%;
         }
-        .media img{ width: 100%; height: 100%; object-fit: cover; display:block; }
-        .content{ width: 62%; display:flex; flex-direction: column; gap: 8px; }
-        .content h2{ margin:0; font-size: 1.5rem; }
-        .content p{ margin:0; color: var(--muted); }
+        .media img{ width:100%; height:100%; object-fit: cover; display:block; }
+        .content{ display:flex; flex-direction: column; gap: 10px; }
+        .content h2{ margin:0; font-size: clamp(20px, 2.4vw, 28px); line-height:1.2; }
+        .content p{ margin:0; color: var(--muted); font-size: clamp(14px, 1.3vw, 18px); }
 
-        /* B-day card */
-        .bday{
-          display:flex; gap:16px; align-items:center; padding:14px; position:relative;
-        }
+        /* B-day card com avatar fixo */
+        .bday{ display:grid; grid-template-columns: var(--avatar-size) 1fr; gap:18px; padding: var(--block-pad); position:relative; }
         .bday .photo{
-          width:120px; height:120px; border-radius: 14px; overflow:hidden;
-          background:#0b1324; border:1px solid rgba(255,255,255,0.06)
+          width: var(--avatar-size); height: var(--avatar-size);
+          border-radius: 14px; overflow:hidden; background:#0b1324; border:1px solid rgba(255,255,255,0.08)
         }
         .bday .photo img{ width:100%; height:100%; object-fit: cover; display:block; }
-        .bday .info{ display:flex; flex-direction:column; gap:6px; }
-        .bday .name{ font-size:1.6rem; font-weight:800; }
+        .bday .info{ display:flex; flex-direction:column; gap:8px; }
+        .bday .name{ font-size: clamp(22px, 2.6vw, 30px); font-weight:800; }
         .badge{
           display:inline-block; padding:4px 10px; border-radius:999px;
-          background: rgba(16,185,129,.12); border:1px solid rgba(16,185,129,.35); color:#a7f3d0; font-weight:700; font-size:.9rem;
+          background: rgba(16,185,129,.12); border:1px solid rgba(16,185,129,.35); color:#a7f3d0; font-weight:700; font-size:.95rem;
         }
         .day-badge{
           display:inline-block; padding:4px 10px; border-radius:999px;
-          background: rgba(59,130,246,.12); border:1px solid rgba(59,130,246,.35); color:#bfdbfe; font-weight:700; font-size:.9rem; margin-left:6px;
+          background: rgba(59,130,246,.12); border:1px solid rgba(59,130,246,.35); color:#bfdbfe; font-weight:700; font-size:.95rem; margin-left:6px;
         }
 
-        /* Confete leve em CSS */
+        /* Confete (leve) */
         .confetti-container { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
         .confetti {
-          position:absolute; top:-10px; width:8px; height:12px; opacity:.85; border-radius:2px;
+          position:absolute; top:-10px; width:8px; height:12px; opacity:.9; border-radius:2px;
           animation: fall linear forwards;
         }
-        @keyframes fall {
-          to { transform: translateY(160%); opacity: .9; }
-        }
+        @keyframes fall { to { transform: translateY(160%); opacity: .95; } }
 
-        /* Clocks & Rates */
-        .row{ display:flex; gap:16px; padding: 10px 14px; }
+        /* Clocks & Rates chips */
+        .row{ display:flex; flex-wrap: wrap; gap: var(--gap); padding: 12px 14px; }
         .chip{
-          background: #0a1629; border:1px solid rgba(255,255,255,0.08); border-radius: 12px;
-          padding:10px 14px; display:flex; align-items:center; gap:10px;
-          box-shadow: var(--shadow);
+          background: #0a1629; border:1px solid rgba(255,255,255,0.10); border-radius: 12px;
+          padding:10px 14px; display:flex; align-items:center; gap:10px; box-shadow: var(--shadow);
         }
         .chip .lbl{ color:#9ca3af; font-weight:700; }
         .chip .val{ font-weight:800; letter-spacing:.3px; }
 
-        /* Weather ticker (marquee) */
-        .ticker-wrap{ position:relative; width:100%; height:66px; overflow:hidden; }
+        /* Weather ticker */
+        .ticker-wrap{ position:relative; width:100%; height:72px; overflow:hidden; }
         .ticker{
           position:absolute; white-space: nowrap; will-change: transform;
           animation: scroll-left 28s linear infinite;
         }
-        @keyframes scroll-left {
-          0% { transform: translateX(100%); }
-          100% { transform: translateX(-100%); }
-        }
+        @keyframes scroll-left { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
         .tick-item{
           display:inline-flex; align-items:center; gap:8px; margin: 0 18px;
-          padding: 8px 12px; border-radius: 999px; background: #0f172a; border:1px solid rgba(255,255,255,0.08);
+          padding: 8px 12px; border-radius: 999px; background: #0f172a; border:1px solid rgba(255,255,255,0.10);
         }
         .tick-emoji{ font-size: 1.1rem; }
         .tick-val{ font-weight:800; }
 
+        /* Vídeo 16:9 padronizado */
+        .video-frame{
+          position: relative; width: 100%;
+          aspect-ratio: var(--video-ratio);
+          max-height: var(--video-max-h);
+          background: #0b1324;
+          border:1px solid rgba(255,255,255,0.08);
+          border-radius: 12px; overflow: hidden;
+          margin: 12px 14px 16px 14px;
+        }
+        .video-frame iframe, .video-frame video{
+          position:absolute; inset:0; width:100%; height:100%; display:block; object-fit: cover; border:0;
+        }
+
         /* Responsivo */
         @media (max-width: 1100px){
-          .media{ width: 44%; }
-          .content{ width: 56%; }
+          .card{ grid-template-columns: 48% 52%; }
         }
         @media (max-width: 900px){
           .grid{
             grid-template-columns: 1fr;
             grid-template-rows: auto;
-            grid-template-areas:
-              "a"
-              "c"
-              "d"
-              "e"
-              "f";
+            grid-template-areas: "a" "c" "d" "e" "f";
           }
-          .media{ width:100%; min-height:180px; }
-          .content{ width:100%; }
+          .card{ grid-template-columns: 1fr; }
         }
         </style>
         """,
@@ -179,7 +179,6 @@ def inject_base_css():
     )
 
 def _confetti_html(n=24):
-    # gera N pedaços com cores aleatórias CSS (pré-definidas para evitar JS)
     colors = ["#f59e0b", "#10b981", "#3b82f6", "#ef4444", "#eab308", "#a855f7", "#22d3ee", "#84cc16", "#f97316"]
     pieces = []
     for i in range(n):
@@ -187,25 +186,24 @@ def _confetti_html(n=24):
         delay = f"{(i%10)*0.12:.2f}s"
         dur = f"{2.8 + (i%5)*0.25:.2f}s"
         color = colors[i % len(colors)]
-        xjitter = (-30 + (i*7) % 60)  # apenas variação simples
+        xj = (-30 + (i*7) % 60)
         pieces.append(
-            f"<span class='confetti' style='left:{left}; background:{color}; animation-duration:{dur}; animation-delay:{delay}; transform: translateX({xjitter}px)'></span>"
+            f"<span class='confetti' style='left:{left}; background:{color}; animation-duration:{dur}; animation-delay:{delay}; transform: translateX({xj}px)'></span>"
         )
     return "<div class='confetti-container'>" + "".join(pieces) + "</div>"
 
 def news_card(title: str, description: str, image_url: str):
     st.markdown("<div class='title'>📰 Notícias</div>", unsafe_allow_html=True)
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    # imagem
+    # mídia com proporção fixa
     st.markdown(
         f"""
         <div class='media'>
-          <img src="{image_url or 'https://picsum.photos/800/450'}" alt="Imagem da notícia" />
+          <img src="{image_url or 'https://picsum.photos/800/600'}" alt="Imagem da notícia" />
         </div>
         """,
         unsafe_allow_html=True
     )
-    # texto
     st.markdown(
         f"""
         <div class='content'>
@@ -219,7 +217,6 @@ def news_card(title: str, description: str, image_url: str):
 
 def bday_card(name: str, sector: str, day: str, photo_url: str):
     st.markdown("<div class='title'>🎉 Aniversariante do mês</div>", unsafe_allow_html=True)
-    # bloco
     st.markdown("<div class='bday'>", unsafe_allow_html=True)
     st.markdown(_confetti_html(26), unsafe_allow_html=True)
     st.markdown(
@@ -249,7 +246,6 @@ def _fmt_rate(v):
     try:
         if v is None: return "--"
         if isinstance(v, (int,float)):
-            # BRL com 2 casas
             return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         return str(v)
     except Exception:
@@ -258,7 +254,6 @@ def _fmt_rate(v):
 def clocks_block(times: List[Tuple[str, str]], rates: Dict[str, float]):
     st.markdown("<div class='title'>🕒 Horas mundiais & 💱 Cotações</div>", unsafe_allow_html=True)
     st.markdown("<div class='row'>", unsafe_allow_html=True)
-    # Horas
     if times:
         for label, hhmm in times:
             st.markdown(
@@ -267,19 +262,15 @@ def clocks_block(times: List[Tuple[str, str]], rates: Dict[str, float]):
             )
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Moedas
     st.markdown("<div class='row'>", unsafe_allow_html=True)
-    if rates:
-        usd = _fmt_rate(rates.get("USD"))
-        eur = _fmt_rate(rates.get("EUR"))
-        btc = _fmt_rate(rates.get("BTC"))
-        eth = _fmt_rate(rates.get("ETH"))
-        st.markdown(f"<div class='chip'><span class='lbl'>USD</span> <span class='val'>{usd}</span></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='chip'><span class='lbl'>EUR</span> <span class='val'>{eur}</span></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='chip'><span class='lbl'>BTC</span> <span class='val'>{btc}</span></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='chip'><span class='lbl'>ETH</span> <span class='val'>{eth}</span></div>", unsafe_allow_html=True)
-    else:
-        st.markdown("<div class='chip'><span class='lbl'>Cotações</span> <span class='val'>--</span></div>", unsafe_allow_html=True)
+    usd = _fmt_rate(rates.get("USD"))
+    eur = _fmt_rate(rates.get("EUR"))
+    btc = _fmt_rate(rates.get("BTC"))
+    eth = _fmt_rate(rates.get("ETH"))
+    st.markdown(f"<div class='chip'><span class='lbl'>USD</span> <span class='val'>{usd}</span></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='chip'><span class='lbl'>EUR</span> <span class='val'>{eur}</span></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='chip'><span class='lbl'>BTC</span> <span class='val'>{btc}</span></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='chip'><span class='lbl'>ETH</span> <span class='val'>{eth}</span></div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 def weather_emoji(code):
@@ -296,7 +287,6 @@ def weather_emoji(code):
     return "🌡️"
 
 def weather_ticker(df: pd.DataFrame):
-    # Espera colunas: alias, temperature, windspeed, weathercode
     items = []
     if df is None or df.empty:
         items.append("<span class='tick-item'><span class='tick-emoji'>🌡️</span><span class='tick-val'>Sem dados</span></span>")
@@ -313,3 +303,22 @@ def weather_ticker(df: pd.DataFrame):
             )
     html = "<div class='ticker-wrap'><div class='ticker'>" + "".join(items) + "</div></div>"
     st.markdown(html, unsafe_allow_html=True)
+
+def video_player(url: str):
+    """
+    Player 16:9 padronizado para YouTube e arquivos (mp4/webm/ogg).
+    """
+    if not url:
+        st.info("Sem vídeo configurado.")
+        return
+    # container com aspect-ratio
+    st.markdown("<div class='title'>🎬 Vídeos institucionais</div>", unsafe_allow_html=True)
+    if "youtube.com" in url or "youtu.be" in url:
+        # força autoplay+mute
+        yt = url + ("&" if "?" in url else "?") + "autoplay=1&mute=1&playsinline=1&controls=0"
+        st.markdown(f"<div class='video-frame'><iframe src='{yt}' allow='autoplay; encrypted-media;'></iframe></div>", unsafe_allow_html=True)
+    elif url.lower().endswith((".mp4",".webm",".ogg")):
+        st.markdown(f"<div class='video-frame'><video src='{url}' autoplay muted playsinline></video></div>", unsafe_allow_html=True)
+    else:
+        # fallback: tenta iframe genérico
+        st.markdown(f"<div class='video-frame'><iframe src='{url}'></iframe></div>", unsafe_allow_html=True)
